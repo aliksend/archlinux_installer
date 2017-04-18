@@ -6,6 +6,8 @@ import time
 import sys
 import paramiko
 
+device = 'sda'
+
 print("1. Boot to ArchLinux.iso")
 ip = raw_input("2. Get IP (run `ip address` of `ifconfig`): ")
 print("   Checking ip")
@@ -71,24 +73,28 @@ dbg_print("Setting time")
 ssh_exec('timedatectl set-ntp true')
 
 dbg_print("Partitioning drive")
-ssh_exec('parted /dev/sda -s -a opt mklabel msdos mkpart primary ext2 0% 100MB set 1 boot on mkpart primary linux-swap 100MB 2048MB mkpart primary ext4 2048MB 100%')
+ssh_exec('parted /dev/{0} -s -a opt mklabel msdos mkpart primary ext2 0% 100MB set 1 boot on mkpart primary linux-swap 100MB 2048MB mkpart primary ext4 2048MB 100%'.format(device))
 
 dbg_print("Creating filesystems")
-ssh_exec('mkfs.ext2 /dev/sda1 -F -L boot')
-ssh_exec('mkfs.ext3 /dev/sda3 -F -L root')
-ssh_exec('mkswap /dev/sda2 -L swap')
+ssh_exec('mkfs.ext2 /dev/{0}1 -F -L boot'.format(device))
+ssh_exec('mkswap /dev/{0}2 -L swap'.format(device))
+ssh_exec('mkfs.ext3 /dev/{0}3 -F -L root'.format(device))
 
 dbg_print("Mounting filesystems")
-ssh_exec('mount /dev/sda3 /mnt')
+ssh_exec('mount /dev/{0}3 /mnt'.format(device))
 ssh_exec('mkdir /mnt/boot')
-ssh_exec('mount /dev/sda1 /mnt/boot')
-ssh_exec('swapon /dev/sda2')
+ssh_exec('mount /dev/{0}1 /mnt/boot'.format(device))
+ssh_exec('swapon /dev/{0}2'.format(device))
 
 dbg_print("Updating mirrors")
 ssh_exec('mv /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.orig')
 ssh_exec('echo \'Server = http://mirror.yandex.ru/archlinux/$repo/os/$arch\' > /etc/pacman.d/mirrorlist')
 ssh_exec('cat /etc/pacman.d/mirrorlist.orig >> /etc/pacman.d/mirrorlist')
 ssh_exec('rm /etc/pacman.d/mirrorlist.orig')
+
+dbg_print("Killing SigLevel")
+ssh_exec('pacman-key --init')
+ssh_exec('sed -i \'s/^SigLevel\s*= Required DatabaseOptional/SigLevel=Never/g\' /etc/pacman.conf')
 
 dbg_print("Installing packages")
 ssh_exec('pacstrap /mnt --noconfirm base base-devel net-tools grub openssh')
@@ -109,7 +115,7 @@ dbg_print("Running mkinitcpio")
 ssh_exec('arch-chroot /mnt mkinitcpio -p linux')
 
 dbg_print("Installing grub")
-ssh_exec('arch-chroot /mnt grub-install /dev/sda')
+ssh_exec('arch-chroot /mnt grub-install /dev/{0}'.format(device))
 ssh_exec('arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg')
 
 dbg_print("Enabling dhcpcd and sshd")
@@ -127,7 +133,7 @@ ssh_exec('umount /mnt/boot')
 time.sleep(2)
 ssh_exec('umount /mnt')
 time.sleep(2)
-ssh_exec('swapoff /dev/sda2')
+ssh_exec('swapoff /dev/{0}2'.format(device))
 
 raw_input("5. Now remove installation media and press Enter to reboot")
 
@@ -210,6 +216,10 @@ ssh_exec('useradd -m -g users -G audio,games,lp,optical,power,scanner,storage,vi
 stdin, stdout, stderr = client.exec_command('passwd ' + username)
 stdin.write(username + '\n')
 stdin.write(username + '\n')
+
+dbg_print("Updating keys")
+ssh_exec('pacman-key --init')
+ssh_exec('pacman-key --populate archlinux')
 
 dbg_print("Updating system")
 ssh_exec('pacman --noconfirm -Syyu')
